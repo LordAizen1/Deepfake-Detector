@@ -1,5 +1,7 @@
 # Deepfake Detector
 
+![Deepfake Detector UI](./public/image.png)
+
 A web-based forensic tool for detecting AI-manipulated facial images using computer vision.
 
 Built by **Team Vincenzo** — Computer Vision Course Project, IIIT-Delhi.
