@@ -1,38 +1,73 @@
 import cv2
-import os
+import torch
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
-from insightface.app import FaceAnalysis
-
+from facenet_pytorch import MTCNN
+from PIL import Image
 
 # ─────────────────────────────────────────────
-# CONFIG — adjust these to your actual paths
+# CONFIG
 # ─────────────────────────────────────────────
-FF_ROOT         = "o++_C23"       # root of your dataset
-FAKE_FOLDER     = "Deepfakes"                 # only Deepfakes for now
+FF_ROOT         = "o++_C23"
+FAKE_FOLDER     = "Deepfakes"
 REAL_FOLDER     = "original"
-OUTPUT_FACE_DIR = "faces"                     # final output — feed this to PyTorch
+OUTPUT_FACE_DIR = "faces"
 
-FRAME_INTERVAL      = 10       # every 10th frame
+FRAME_INTERVAL      = 10
 FACE_SIZE           = 224
-MARGIN              = 0.20     # 20% margin around bbox
+MARGIN              = 0.20
 MIN_CONFIDENCE      = 0.90
-MAX_FRAMES_PER_VID  = 20       # cap per video to keep dataset balanced
+MAX_FRAMES_PER_VID  = 20
 
-app = FaceAnalysis(name='buffalo_l')
-app.prepare(ctx_id=0)  # use CPU if no GPU
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print(f"Using device: {device}")
+mtcnn = MTCNN(keep_all=False, device=device, min_face_size=40)
+
 # ─────────────────────────────────────────────
-# STEP 1 — extract frames + crop faces in one pass
-# (avoids saving intermediate raw frames to disk)
+# FACE DETECTION + CROP
+# ─────────────────────────────────────────────
+def detect_and_crop_face(frame_bgr):
+    frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+    pil_img = Image.fromarray(frame_rgb)
+
+    boxes, probs = mtcnn.detect(pil_img)
+
+    if boxes is None or len(boxes) == 0:
+        return None
+
+    best_idx = int(np.argmax(probs))
+    if probs[best_idx] < MIN_CONFIDENCE:
+        return None
+
+    x1, y1, x2, y2 = boxes[best_idx]
+    h, w = frame_bgr.shape[:2]
+
+    bw, bh = x2 - x1, y2 - y1
+    mx, my = int(bw * MARGIN), int(bh * MARGIN)
+
+    x1 = max(0, int(x1) - mx)
+    y1 = max(0, int(y1) - my)
+    x2 = min(w, int(x2) + mx)
+    y2 = min(h, int(y2) + my)
+
+    crop = frame_bgr[y1:y2, x1:x2]
+    if crop.size == 0:
+        return None
+
+    return cv2.resize(crop, (FACE_SIZE, FACE_SIZE))
+
+# ─────────────────────────────────────────────
+# PROCESS VIDEO
 # ─────────────────────────────────────────────
 def process_video(video_path: str, label: str):
-    """
-    Extract every Nth frame, run RetinaFace, save 224x224 face crop.
-    Returns (saved, skipped) counts.
-    """
     video_name = Path(video_path).stem
     save_dir = Path(OUTPUT_FACE_DIR) / label / video_name
+
+    # skip if already processed
+    if save_dir.exists() and any(save_dir.glob("*.png")):
+        return 0, 0
+
     save_dir.mkdir(parents=True, exist_ok=True)
 
     cap = cv2.VideoCapture(video_path)
@@ -47,11 +82,8 @@ def process_video(video_path: str, label: str):
         ret, frame = cap.read()
         if not ret:
             break
-
-        # stop early if we've saved enough from this video
         if saved >= MAX_FRAMES_PER_VID:
             break
-
         if frame_idx % FRAME_INTERVAL == 0:
             face_crop = detect_and_crop_face(frame)
             if face_crop is not None:
@@ -60,41 +92,10 @@ def process_video(video_path: str, label: str):
                 saved += 1
             else:
                 skipped += 1
-
         frame_idx += 1
 
     cap.release()
     return saved, skipped
-
-
-def detect_and_crop_face(img):
-    faces = app.get(img)
-
-    if len(faces) == 0:
-        return None
-
-    # pick highest confidence face
-    best = max(faces, key=lambda f: f.det_score)
-    if best.det_score < MIN_CONFIDENCE:
-        return None
-
-    x1, y1, x2, y2 = map(int, best.bbox)
-    h, w = img.shape[:2]
-
-    # margin
-    bw, bh = x2 - x1, y2 - y1
-    mx, my = int(bw * MARGIN), int(bh * MARGIN)
-
-    x1 = max(0, x1 - mx)
-    y1 = max(0, y1 - my)
-    x2 = min(w, x2 + mx)
-    y2 = min(h, y2 + my)
-
-    crop = img[y1:y2, x1:x2]
-    if crop.size == 0:
-        return None
-
-    return cv2.resize(crop, (FACE_SIZE, FACE_SIZE))
 
 # ─────────────────────────────────────────────
 # MAIN
@@ -113,9 +114,8 @@ def run(label_folder_pairs):
             total_saved   += s
             total_skipped += sk
 
-    print(f"\n✓ Done. Faces saved: {total_saved}  |  Frames skipped (no face): {total_skipped}")
+    print(f"\nDone. Faces saved: {total_saved}  |  Frames skipped (no face): {total_skipped}")
     print(f"  Output: {OUTPUT_FACE_DIR}/")
-
 
 if __name__ == "__main__":
     run([

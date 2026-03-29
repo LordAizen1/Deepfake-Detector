@@ -9,6 +9,7 @@ interface PredictionResult {
   confidence: number;
   fake_prob: number;
   real_prob: number;
+  heatmap?: string;
 }
 
 type Status = "idle" | "loading" | "done" | "error";
@@ -25,28 +26,30 @@ export default function Home() {
     setErrorMsg("");
     setStatus("loading");
 
-    // --- MOCK: comment this block out and uncomment the fetch below when backend is ready ---
-    await new Promise((r) => setTimeout(r, 2000));
-    setResult({ label: "REAL", confidence: 0.985, fake_prob: 0.015, real_prob: 0.985 });
-    setStatus("done");
-    // --- END MOCK ---
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
 
-    // try {
-    //   const formData = new FormData();
-    //   formData.append("file", file);
-    //
-    //   const res = await fetch("/api/predict", { method: "POST", body: formData });
-    //   if (!res.ok) {
-    //     const data = await res.json();
-    //     throw new Error(data.detail || "Prediction failed");
-    //   }
-    //
-    //   setResult(await res.json());
-    //   setStatus("done");
-    // } catch (err) {
-    //   setErrorMsg(err instanceof Error ? err.message : "Something went wrong");
-    //   setStatus("error");
-    // }
+      const res = await fetch("/api/predict", { method: "POST", body: formData });
+      const text = await res.text();
+
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error("Server error — please try a different image");
+      }
+
+      if (!res.ok) {
+        throw new Error(data.detail || "Prediction failed");
+      }
+
+      setResult(data);
+      setStatus("done");
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Something went wrong");
+      setStatus("error");
+    }
   }
 
   function reset() {
@@ -80,9 +83,9 @@ export default function Home() {
             {(status === "loading" || status === "done") && preview && (
               <div className="relative w-full h-full">
                 <img
-                  src={preview}
+                  src={status === "done" && result?.heatmap ? result.heatmap : preview}
                   alt="forensic facial analysis"
-                  className="w-full h-full object-cover grayscale opacity-60"
+                  className={`w-full h-full object-cover ${status === "done" && result?.heatmap ? "" : "grayscale opacity-60"}`}
                 />
                 {status === "loading" && (
                   <div className="absolute inset-0 bg-surface-container/40 backdrop-blur-md flex flex-col items-center justify-center">
@@ -131,9 +134,9 @@ export default function Home() {
       {/* Footer */}
       <footer className="mt-auto pt-12 pb-6 opacity-30 flex flex-col items-center space-y-2">
         <div className="flex items-center space-x-4 text-[10px] font-label uppercase tracking-tighter text-on-surface-variant">
-          <span>Model: Xception</span>
+          <span>Model: EfficientNet-B4</span>
           <span className="w-1 h-1 bg-on-surface-variant rounded-full" />
-          <span>Dataset: ForgeryNet</span>
+          <span>Dataset: FaceForensics++</span>
           <span className="w-1 h-1 bg-on-surface-variant rounded-full" />
           <span>No data stored</span>
         </div>

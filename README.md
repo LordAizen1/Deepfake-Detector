@@ -2,7 +2,7 @@
 
 ![Deepfake Detector UI](./public/image.png)
 
-A web-based forensic tool for detecting AI-manipulated facial images using computer vision.
+A web-based forensic tool for detecting AI-manipulated facial images using EfficientNet-B4, trained on FaceForensics++.
 
 Built by **Team Vincenzo** — Computer Vision Course Project, IIIT-Delhi.
 
@@ -10,20 +10,46 @@ Built by **Team Vincenzo** — Computer Vision Course Project, IIIT-Delhi.
 
 ## Overview
 
-This system analyzes a given face image and classifies it as **REAL** or **FAKE**, targeting manipulation types such as face-swap, expression-swap, and attribute changes.
+Upload a face image and the system will:
+- Classify it as **REAL** or **FAKE** with a confidence score
+- Generate a **Grad-CAM heatmap** highlighting regions the model focused on for its decision
+- Reject non-face images (cats, landscapes, etc.)
 
-**Planned extension:** Pixel-level localization of manipulated regions.
+---
+
+## Results
+
+Trained on FaceForensics++ (C23) — Deepfakes + Original videos.
+
+| Metric | Test Score |
+|--------|-----------|
+| Accuracy | **96.1%** |
+| F1-Score | **96.3%** |
+| AUC-ROC | **99.5%** |
+
+### Training Curves
+
+| Train Loss | Train Accuracy |
+|:---:|:---:|
+| ![Train Loss](./public/train_loss.png) | ![Train Accuracy](./public/train_accuracy.png) |
+
+| Val Loss | Val Accuracy |
+|:---:|:---:|
+| ![Val Loss](./public/val_loss.png) | ![Val Accuracy](./public/val_accuracy.png) |
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
+| Component | Technology |
+|-----------|-----------|
 | Frontend | Next.js 15, Tailwind CSS |
 | Backend | FastAPI (Python) |
-| Model | Xception-based CNN |
-| Datasets | DFFD, ForgeryNet, FaceForensics++ |
+| Model | EfficientNet-B4 (via timm) |
+| Localization | Grad-CAM |
+| Face Detection | MTCNN (preprocessing), OpenCV Haar Cascade (inference) |
+| Experiment Tracking | Weights & Biases |
+| Training Infra | IIITD Precision Cluster — A100 40GB (SLURM) |
 
 ---
 
@@ -31,19 +57,29 @@ This system analyzes a given face image and classifies it as **REAL** or **FAKE*
 
 ```
 deepfake-detector/
-├── app/                  # Next.js App Router
-│   ├── layout.tsx
-│   ├── page.tsx
-│   └── globals.css
+├── app/
+│   ├── globals.css              # Tailwind + Material Symbols
+│   ├── layout.tsx               # Root layout (Inter + Newsreader fonts)
+│   └── page.tsx                 # Main page (upload, results, states)
 ├── components/
-│   ├── ImageUpload.tsx   # Drag & drop upload
-│   └── ResultDisplay.tsx # Verdict + confidence meter
+│   ├── ImageUpload.tsx          # Drag & drop file upload
+│   └── ResultDisplay.tsx        # Verdict + confidence meter
 ├── backend/
-│   ├── main.py           # FastAPI server
-│   ├── model.py          # Model inference (swap in trained weights here)
+│   ├── checkpoints/
+│   │   └── best_model.pth       # Trained weights (202MB, not in git)
+│   ├── main.py                  # FastAPI server + /predict endpoint
+│   ├── model.py                 # EfficientNet-B4 inference + Grad-CAM
+│   ├── dataset.py               # PyTorch dataset + video-level splits
+│   ├── preprocess.py            # Video → face crop pipeline (MTCNN)
+│   ├── train.py                 # Training loop + W&B logging
+│   ├── preprocess.sh            # SLURM job script (preprocessing)
+│   ├── run.sh                   # SLURM job script (training)
 │   └── requirements.txt
-├── next.config.ts
-└── tailwind.config.ts
+├── public/
+│   └── image.png                # UI screenshot
+├── next.config.ts               # Proxies /api/* → FastAPI
+├── tailwind.config.ts           # Forensic Editorial design tokens
+└── FINDINGS.md                  # Full documentation & results
 ```
 
 ---
@@ -53,11 +89,11 @@ deepfake-detector/
 ### Prerequisites
 - Node.js 18+
 - Python 3.10+
-- NVIDIA GPU (RTX 3060 or better recommended)
 
 ### Frontend
 
 ```bash
+cd deepfake-detector
 npm install
 npm run dev
 ```
@@ -67,7 +103,9 @@ Runs on `http://localhost:3000`
 ### Backend
 
 ```bash
-cd backend
+cd deepfake-detector/backend
+python -m venv deepfake-backend
+deepfake-backend\Scripts\activate       # Windows
 pip install -r requirements.txt
 uvicorn main:app --reload
 ```
@@ -76,34 +114,19 @@ Runs on `http://localhost:8000`
 
 The Next.js app proxies `/api/*` → `http://localhost:8000/*` automatically.
 
----
-
-## Model
-
-The model stub lives in `backend/model.py`. To plug in your trained model:
-
-1. Save your weights to `backend/weights/`
-2. Update `DeepfakeDetector.__init__()` to load the model
-3. Update `DeepfakeDetector.predict()` with real inference logic
+> **Note:** You need the trained model weights at `backend/checkpoints/best_model.pth`. These are not included in the repo due to size (202MB).
 
 ---
 
-## Datasets
+## Training Pipeline
 
-| Dataset | Real Images | Fake Images |
-|---------|------------|-------------|
-| DFFD | 58,703 | 240,336 |
-| ForgeryNet | 1,438,201 | 1,457,861 |
-| FaceForensics++ | Video-based (frame extraction) | — |
+To retrain the model from scratch:
 
----
+1. **Download dataset:** FaceForensics++ C23 from [Kaggle](https://www.kaggle.com/datasets/xdxd003/ff-c23)
+2. **Preprocess:** `python preprocess.py` — extracts face crops from videos using MTCNN
+3. **Train:** `python train.py` — EfficientNet-B4, 20 epochs, freeze→unfreeze strategy
 
-## Evaluation Metrics
-
-- **Detection:** Accuracy, AUC-ROC, F1-Score
-- **Localization:** IoU, Pixel Accuracy, Dice Coefficient
-- **Robustness:** Cross-dataset generalization, compression levels
-- **Efficiency:** Inference time (ms), model size (MB)
+See [`FINDINGS.md`](./FINDINGS.md) for full details on hyperparameters, augmentations, and infrastructure setup.
 
 ---
 

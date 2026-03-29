@@ -18,18 +18,31 @@ __pycache__/
 .venv/
 venv/
 backend/__pycache__/
+backend/deepfake-backend/
 
 # Model weights (too large for git)
 backend/weights/
+backend/checkpoints/
 *.pth
 *.pt
 *.ckpt
 *.h5
+
+# Datasets & preprocessing output
+backend/o++_C23/
+backend/faces/
+backend/ff-c23.zip
+
+# W&B logs
+backend/wandb/
+
+# SLURM logs
+*_out.log
+*_error.log
 
 # OS
 .DS_Store
 Thumbs.db
 
 # Misc
-*.log
 .vercel

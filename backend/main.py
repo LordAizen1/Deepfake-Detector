@@ -27,4 +27,6 @@ async def predict(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Image too large (max 10MB)")
 
     result = detector.predict(image_bytes)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
     return result

@@ -104,7 +104,10 @@ def train_epoch(model, loader, criterion, optimizer, device, epoch):
             probs = [probs]
 
         all_probs  += probs
-        all_labels += labels.cpu().squeeze().tolist()
+        lbls = labels.cpu().squeeze().tolist()
+        if isinstance(lbls, float):
+            lbls = [lbls]
+        all_labels += lbls
         running_loss += loss.item()
 
         pbar.set_postfix(loss=f"{loss.item():.4f}")
@@ -135,7 +138,10 @@ def evaluate(model, loader, criterion, device, split="val"):
             probs = [probs]
 
         all_probs  += probs
-        all_labels += labels.cpu().squeeze().tolist()
+        lbls = labels.cpu().squeeze().tolist()
+        if isinstance(lbls, float):
+            lbls = [lbls]
+        all_labels += lbls
         running_loss += loss.item()
 
     avg_loss = running_loss / len(loader)

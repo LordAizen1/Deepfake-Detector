@@ -5,6 +5,7 @@ interface PredictionResult {
   confidence: number;
   fake_prob: number;
   real_prob: number;
+  heatmap?: string;
 }
 
 interface Props {
@@ -23,7 +24,7 @@ export default function ResultDisplay({ result, onReset }: Props) {
       <div className="space-y-1">
         <div className="flex items-center justify-center space-x-3">
           <span
-            className="material-symbols-outlined text-3xl"
+            className="material-symbols-outlined text-4xl leading-none -translate-y-1"
             style={{
               fontVariationSettings: "'FILL' 1",
               color: isFake ? "var(--tw-color-tertiary, #ff7b70)" : "#6daa8b",
@@ -32,7 +33,7 @@ export default function ResultDisplay({ result, onReset }: Props) {
             {isFake ? "warning" : "verified"}
           </span>
           <h2
-            className="text-5xl font-headline italic tracking-tight"
+            className="text-5xl font-headline italic tracking-tight leading-none"
             style={{ color: isFake ? "#ff7b70" : "#6daa8b" }}
           >
             {result.label}
