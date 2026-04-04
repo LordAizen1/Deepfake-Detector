@@ -328,7 +328,28 @@ Video size limit & 200 MB \\
 \subsection{Model Limitations}
 
 \begin{enumerate}
-    \item \textbf{Cross-dataset generalization gap (critical)} --- the model achieves 96.1\% on the FF++ test set but fails to detect high-quality modern deepfakes. Qualitative testing on a well-known deepfake video (public, circa 2023--2024) produced a confidence of 97\% \textsc{REAL} --- a complete misclassification. This is a fundamental limitation of training on a single dataset: the model learns the artifact patterns specific to FF++ (early FaceSwap/DeepFaceLab compression artifacts from $\sim$2018--2019) and does not generalize to newer generation methods. This gap is documented extensively in the literature; Celeb-DF \cite{celeb-df} was specifically designed to expose it.
+    \item \textbf{Cross-manipulation generalization gap (critical)} --- the model achieves 96.1\% on the FF++ \texttt{Deepfakes} test set but fails to generalize to other manipulation types within the same dataset. Quantitative evaluation on all four unseen FF++ manipulation types (10,000 samples each, using identical MTCNN preprocessing) produced the following results:
+
+    \begin{table}[H]
+    \centering
+    \begin{tabular}{@{}lrrrr@{}}
+    \toprule
+    \textbf{Manipulation Type} & \textbf{Samples} & \textbf{Accuracy} & \textbf{F1} & \textbf{Detected\%} \\
+    \midrule
+    Face2Face       & 10,000 & 4.35\%  & 0.083 & 4.3\%  \\
+    FaceSwap        & 10,000 & 1.77\%  & 0.035 & 1.8\%  \\
+    FaceShifter     & 10,000 & 9.59\%  & 0.175 & 9.6\%  \\
+    NeuralTextures  & 10,000 & 6.67\%  & 0.125 & 6.7\%  \\
+    \midrule
+    Real (original) &  2,000 & 98.45\% & ---   & FP: 1.6\% \\
+    \midrule
+    \textbf{Trained on: Deepfakes (test set)} & 6,025 & \textbf{96.1\%} & \textbf{0.963} & --- \\
+    \bottomrule
+    \end{tabular}
+    \caption{Cross-manipulation generalization evaluation. The model was evaluated with no retraining on unseen FF++ manipulation types. Real-face accuracy remains high (98.45\%), confirming the model is not trivially predicting REAL for all inputs --- it has genuinely learned Deepfakes-specific artifacts that do not transfer to other manipulation methods.}
+    \end{table}
+
+    The real-face accuracy (98.45\%) staying high confirms the model learned genuine signal --- it is not predicting REAL for everything. The failure is specific to artifact type: the model learned face-swap blending artifacts from \texttt{Deepfakes/} that are absent in expression-transfer (Face2Face), neural rendering (NeuralTextures), and other face-swap variants (FaceSwap, FaceShifter) which use different pipelines.
 
     \item \textbf{Only trained on Deepfakes manipulation type} --- the model has only seen face-swap deepfakes from the \texttt{Deepfakes/} folder. It has not been trained on Face2Face, FaceSwap, FaceShifter, or NeuralTextures manipulations despite all being present in FF++.
 
@@ -354,16 +375,31 @@ The following improvements were made beyond the original proposal based on TA fe
 
 \begin{enumerate}
     \item \textbf{Video detection} (\textit{implemented}) --- the system now accepts video files (.mp4, .mov, .webm). Frames are sampled, face-validated, and individually classified; results are aggregated and a Grad-CAM heatmap from the most decisive frame is returned. See Section~7.2 for the full pipeline.
-    \item \textbf{Multi-media UI} (\textit{implemented}) --- the frontend now accepts both images and videos via drag-and-drop. A video preview is shown during analysis, and per-frame count is displayed in results.
+
+    \item \textbf{Multi-media UI} (\textit{implemented}) --- the frontend accepts both images and videos via drag-and-drop. A video preview is shown during analysis, and per-frame count is displayed in results.
+
+    \item \textbf{Cross-manipulation generalization evaluation} (\textit{implemented}) --- the trained model was evaluated on all four unseen FF++ manipulation types with no retraining. Results are reported in Section~8.1 and demonstrate significant generalization failure, confirming the model's sensitivity to manipulation-specific artifact patterns.
+
+    \item \textbf{Adversarial robustness testing} (\textit{implemented}) --- FGSM (Fast Gradient Sign Method) adversarial attacks are integrated directly into the web interface. After obtaining a prediction on an image, the user can apply a perturbation of adjustable strength ($\varepsilon$) and observe whether the model's prediction changes. The perturbed image is visually indistinguishable from the original but may cause the model to flip its verdict, demonstrating the model's vulnerability to adversarial inputs.
 \end{enumerate}
+
+\subsection{FGSM Adversarial Attack Implementation}
+
+Given an input image $x$ with predicted label $y$, the FGSM perturbation is computed as:
+
+\[
+x_{\text{adv}} = x + \varepsilon \cdot \text{sign}(\nabla_x \mathcal{L}(f(x), y_{\text{target}}))
+\]
+
+where $y_{\text{target}}$ is the opposite of the model's original prediction (maximising fooling), and $\varepsilon$ controls the perturbation magnitude. The gradient is computed with respect to the input tensor, not the model weights. The \texttt{/adversarial} endpoint accepts $\varepsilon \in [0.001, 0.1]$ and returns both the original and adversarial predictions along with the perturbed image for visual comparison.
 
 % ============================================================
 \section{Future Improvements}
 
 \begin{enumerate}
-    \item \textbf{Cross-dataset training} --- include Celeb-DF v2, DFDC, or ForgeryNet to close the generalization gap identified in Section~8.1. The current model's failure on modern deepfakes is directly attributable to training on a single-source, older-generation dataset.
+    \item \textbf{Cross-dataset training} --- include Celeb-DF v2, DFDC, or ForgeryNet to close the generalization gap identified in Section~8.1.
     \item \textbf{Train on all FF++ manipulation types} --- include Face2Face, FaceSwap, FaceShifter, NeuralTextures alongside the currently used Deepfakes subset.
-    \item \textbf{Adversarial robustness evaluation} --- apply FGSM/PGD perturbations to test images and measure how model confidence degrades; add optional adversarial mode to the UI.
+    \item \textbf{Adversarial training} --- retrain with adversarially perturbed examples mixed into the training set to improve robustness against FGSM/PGD attacks.
     \item \textbf{Enhanced localization} --- train a segmentation head for pixel-level manipulation masks instead of relying on Grad-CAM approximations.
     \item \textbf{Face cropping at inference} --- use MTCNN to crop the face before running the classifier, matching the training pipeline more closely.
     \item \textbf{Model compression} --- distillation or pruning for faster inference on edge devices.
