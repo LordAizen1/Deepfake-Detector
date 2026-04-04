@@ -30,3 +30,18 @@ async def predict(file: UploadFile = File(...)):
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+
+@app.post("/predict_video")
+async def predict_video(file: UploadFile = File(...)):
+    if not file.content_type or not file.content_type.startswith("video/"):
+        raise HTTPException(status_code=400, detail="File must be a video")
+
+    video_bytes = await file.read()
+    if len(video_bytes) > 200 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Video too large (max 200MB)")
+
+    result = detector.predict_video(video_bytes)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result

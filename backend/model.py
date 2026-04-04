@@ -1,5 +1,6 @@
 import os
 import base64
+import tempfile
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -122,6 +123,83 @@ class DeepfakeDetector:
             "fake_prob": round(fake_prob, 4),
             "real_prob": round(real_prob, 4),
             "heatmap": heatmap_b64,
+        }
+
+    def predict_video(self, video_bytes: bytes, sample_every: int = 10, max_frames: int = 20) -> dict:
+        """Sample frames from video, run per-frame prediction, aggregate results."""
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+            tmp.write(video_bytes)
+            tmp_path = tmp.name
+
+        try:
+            cap = cv2.VideoCapture(tmp_path)
+            if not cap.isOpened():
+                return {"error": "Could not open video file"}
+
+            fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+
+            frame_results = []
+            best_frame_pil = None
+            best_frame_tensor = None
+            best_decisiveness = -1.0
+            frame_idx = 0
+            analyzed = 0
+
+            while cap.isOpened() and analyzed < max_frames:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+
+                if frame_idx % sample_every == 0:
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    faces = self.face_cascade.detectMultiScale(
+                        gray, scaleFactor=1.1, minNeighbors=10, minSize=(80, 80)
+                    )
+
+                    if len(faces) > 0:
+                        img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                        tensor = self.transform(img).unsqueeze(0).to(DEVICE)
+
+                        with torch.no_grad():
+                            logit = self.model(tensor)
+                            fake_prob = float(torch.sigmoid(logit).squeeze())
+
+                        decisiveness = abs(fake_prob - 0.5)
+                        if decisiveness > best_decisiveness:
+                            best_decisiveness = decisiveness
+                            best_frame_pil = img
+                            best_frame_tensor = tensor.clone()
+
+                        frame_results.append({
+                            "frame": frame_idx,
+                            "time_sec": round(frame_idx / fps, 2),
+                            "fake_prob": round(fake_prob, 4),
+                        })
+                        analyzed += 1
+
+                frame_idx += 1
+
+            cap.release()
+        finally:
+            os.unlink(tmp_path)
+
+        if len(frame_results) < 3:
+            return {"error": "No human faces detected in the video"}
+
+        avg_fake_prob = sum(r["fake_prob"] for r in frame_results) / len(frame_results)
+        avg_real_prob = 1.0 - avg_fake_prob
+        label = "FAKE" if avg_fake_prob > 0.5 else "REAL"
+
+        heatmap_b64 = self._generate_gradcam(best_frame_tensor, best_frame_pil)
+
+        return {
+            "label": label,
+            "confidence": round(max(avg_fake_prob, avg_real_prob), 4),
+            "fake_prob": round(avg_fake_prob, 4),
+            "real_prob": round(avg_real_prob, 4),
+            "heatmap": heatmap_b64,
+            "frames_analyzed": len(frame_results),
+            "frame_results": frame_results,
         }
 
 

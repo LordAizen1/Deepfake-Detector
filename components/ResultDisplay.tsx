@@ -6,6 +6,7 @@ interface PredictionResult {
   fake_prob: number;
   real_prob: number;
   heatmap?: string;
+  frames_analyzed?: number;
 }
 
 interface Props {
@@ -62,6 +63,13 @@ export default function ResultDisplay({ result, onReset }: Props) {
         />
       </div>
 
+      {/* Video frame info */}
+      {result.frames_analyzed !== undefined && (
+        <p className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant/50">
+          {result.frames_analyzed} frame{result.frames_analyzed !== 1 ? "s" : ""} analyzed
+        </p>
+      )}
+
       {/* Reset button */}
       <button
         onClick={onReset}
@@ -71,7 +79,7 @@ export default function ResultDisplay({ result, onReset }: Props) {
           refresh
         </span>
         <span className="text-xs font-label uppercase tracking-widest font-semibold text-on-surface-variant group-hover:text-on-surface">
-          Upload another image
+          Analyze another file
         </span>
       </button>
     </div>

@@ -2,7 +2,7 @@
 
 ![Deepfake Detector UI](./public/image.png)
 
-A web-based forensic tool for detecting AI-manipulated facial images using EfficientNet-B4, trained on FaceForensics++.
+A web-based forensic tool for detecting AI-manipulated facial images and videos using EfficientNet-B4, trained on FaceForensics++.
 
 Built by **Team Vincenzo** — Computer Vision Course Project, IIIT-Delhi.
 
@@ -10,10 +10,11 @@ Built by **Team Vincenzo** — Computer Vision Course Project, IIIT-Delhi.
 
 ## Overview
 
-Upload a face image and the system will:
+Upload a face image or video and the system will:
 - Classify it as **REAL** or **FAKE** with a confidence score
-- Generate a **Grad-CAM heatmap** highlighting regions the model focused on for its decision
-- Reject non-face images (cats, landscapes, etc.)
+- Generate a **Grad-CAM heatmap** highlighting regions the model focused on
+- For videos: sample up to 20 face-containing frames, aggregate predictions, and show how many frames were flagged
+- Reject non-face media (cats, landscapes, etc.)
 
 ---
 
@@ -48,6 +49,7 @@ Trained on FaceForensics++ (C23) — Deepfakes + Original videos.
 | Model | EfficientNet-B4 (via timm) |
 | Localization | Grad-CAM |
 | Face Detection | MTCNN (preprocessing), OpenCV Haar Cascade (inference) |
+| Video Analysis | OpenCV frame sampling + per-frame inference aggregation |
 | Experiment Tracking | Weights & Biases |
 | Training Infra | IIITD Precision Cluster — A100 40GB (SLURM) |
 
@@ -62,13 +64,13 @@ deepfake-detector/
 │   ├── layout.tsx               # Root layout (Inter + Newsreader fonts)
 │   └── page.tsx                 # Main page (upload, results, states)
 ├── components/
-│   ├── ImageUpload.tsx          # Drag & drop file upload
-│   └── ResultDisplay.tsx        # Verdict + confidence meter
+│   ├── ImageUpload.tsx          # Drag & drop upload (image + video)
+│   └── ResultDisplay.tsx        # Verdict + confidence meter + frame stats
 ├── backend/
 │   ├── checkpoints/
 │   │   └── best_model.pth       # Trained weights (202MB, not in git)
-│   ├── main.py                  # FastAPI server + /predict endpoint
-│   ├── model.py                 # EfficientNet-B4 inference + Grad-CAM
+│   ├── main.py                  # FastAPI server + /predict + /predict_video
+│   ├── model.py                 # EfficientNet-B4 inference + Grad-CAM + video pipeline
 │   ├── dataset.py               # PyTorch dataset + video-level splits
 │   ├── preprocess.py            # Video → face crop pipeline (MTCNN)
 │   ├── train.py                 # Training loop + W&B logging

@@ -4,23 +4,26 @@ import { useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 
 interface Props {
-  onImageSelected: (file: File, preview: string) => void;
+  onMediaSelected: (file: File, preview: string) => void;
   disabled?: boolean;
 }
 
-export default function ImageUpload({ onImageSelected, disabled }: Props) {
+export default function ImageUpload({ onMediaSelected, disabled }: Props) {
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
       const file = acceptedFiles[0];
       if (!file) return;
-      onImageSelected(file, URL.createObjectURL(file));
+      onMediaSelected(file, URL.createObjectURL(file));
     },
-    [onImageSelected]
+    [onMediaSelected]
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { "image/*": [".jpg", ".jpeg", ".png", ".webp"] },
+    accept: {
+      "image/*": [".jpg", ".jpeg", ".png", ".webp"],
+      "video/*": [".mp4", ".webm", ".mov"],
+    },
     maxFiles: 1,
     disabled,
   });
@@ -37,10 +40,10 @@ export default function ImageUpload({ onImageSelected, disabled }: Props) {
         upload_file
       </span>
       <p className="font-label text-xs uppercase tracking-[0.1em] text-on-surface-variant">
-        {isDragActive ? "Drop to analyze" : "Click or drag an image"}
+        {isDragActive ? "Drop to analyze" : "Click or drag an image or video"}
       </p>
       <p className="font-label text-[10px] uppercase tracking-widest text-outline-variant mt-1">
-        JPG · PNG · WEBP · max 10MB
+        JPG · PNG · WEBP · MP4 · MOV · max 200MB
       </p>
     </div>
   );
