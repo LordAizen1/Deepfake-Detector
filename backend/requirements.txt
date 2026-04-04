@@ -7,3 +7,4 @@ torch==2.3.1
 torchvision==0.18.1
 opencv-python==4.9.0.80
 timm==1.0.15
+scikit-learn

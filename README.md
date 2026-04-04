@@ -14,6 +14,7 @@ Upload a face image or video and the system will:
 - Classify it as **REAL** or **FAKE** with a confidence score
 - Generate a **Grad-CAM heatmap** highlighting regions the model focused on
 - For videos: sample up to 20 face-containing frames, aggregate predictions, and show how many frames were flagged
+- **Adversarial robustness test**: apply FGSM perturbations to any image and see if the model gets fooled
 - Reject non-face media (cats, landscapes, etc.)
 
 ---
@@ -69,13 +70,15 @@ deepfake-detector/
 ├── backend/
 │   ├── checkpoints/
 │   │   └── best_model.pth       # Trained weights (202MB, not in git)
-│   ├── main.py                  # FastAPI server + /predict + /predict_video
-│   ├── model.py                 # EfficientNet-B4 inference + Grad-CAM + video pipeline
+│   ├── main.py                  # FastAPI server (/predict, /predict_video, /adversarial)
+│   ├── model.py                 # EfficientNet-B4 inference + Grad-CAM + video + FGSM
 │   ├── dataset.py               # PyTorch dataset + video-level splits
 │   ├── preprocess.py            # Video → face crop pipeline (MTCNN)
 │   ├── train.py                 # Training loop + W&B logging
+│   ├── evaluate_generalization.py  # Cross-manipulation generalization eval
 │   ├── preprocess.sh            # SLURM job script (preprocessing)
 │   ├── run.sh                   # SLURM job script (training)
+│   ├── eval_gen.sh              # SLURM job script (generalization evaluation)
 │   └── requirements.txt
 ├── public/
 │   └── image.png                # UI screenshot
