@@ -110,18 +110,20 @@ def run_inference(model, images, batch_size=32):
 
 # ── Evaluate one manipulation type (all fake) ─────────────────────────────────
 def evaluate_fake(model, mtcnn, manip_type):
+    from tqdm import tqdm
+
     video_dir = Path(FF_ROOT) / manip_type
     videos    = sorted(video_dir.glob("*.mp4"))
 
-    all_faces = []
-    for vpath in videos:
+    probs = []
+    for vpath in tqdm(videos, desc=f"  {manip_type}", ncols=80):
         faces = extract_faces_from_video(vpath, mtcnn)
-        all_faces.extend(faces)
+        if faces:
+            probs.extend(run_inference(model, faces))
 
-    if not all_faces:
+    if not probs:
         return None
 
-    probs  = run_inference(model, all_faces)
     labels = [1] * len(probs)
     preds  = [1 if p > 0.5 else 0 for p in probs]
 
@@ -168,7 +170,6 @@ if __name__ == "__main__":
     print(f"{'=' * 68}")
 
     for manip in MANIP_TYPES:
-        print(f"  [{manip}] extracting faces...", flush=True)
         r = evaluate_fake(model, mtcnn, manip)
         if r:
             results[manip] = r
