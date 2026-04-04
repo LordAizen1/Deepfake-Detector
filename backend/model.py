@@ -202,5 +202,63 @@ class DeepfakeDetector:
             "frame_results": frame_results,
         }
 
+    def adversarial_attack(self, image_bytes: bytes, epsilon: float = 0.02) -> dict:
+        """FGSM adversarial attack: add imperceptible noise to fool the model."""
+        if not self.detect_face(image_bytes):
+            return {"error": "No human face detected in the image"}
+
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        tensor = self.transform(img).unsqueeze(0).to(DEVICE)
+
+        # Original prediction
+        with torch.no_grad():
+            logit = self.model(tensor)
+            orig_fake_prob = float(torch.sigmoid(logit).squeeze())
+            orig_label = "FAKE" if orig_fake_prob > 0.5 else "REAL"
+
+        # FGSM: compute gradient of loss w.r.t. input
+        tensor_adv = tensor.clone().requires_grad_(True)
+        logit_adv = self.model(tensor_adv)
+
+        # Use the opposite of the true label as target to maximise fooling
+        target = torch.tensor([[0.0 if orig_fake_prob > 0.5 else 1.0]]).to(DEVICE)
+        loss = F.binary_cross_entropy_with_logits(logit_adv, target)
+        self.model.zero_grad()
+        loss.backward()
+
+        # Perturb input in the direction of the gradient sign
+        perturbation = epsilon * tensor_adv.grad.sign()
+        tensor_perturbed = (tensor_adv + perturbation).detach().clamp(
+            min=(torch.tensor([0.485, 0.456, 0.406]).to(DEVICE) - torch.tensor([0.229, 0.224, 0.225]).to(DEVICE) * 3).min(),
+            max=(torch.tensor([0.485, 0.456, 0.406]).to(DEVICE) + torch.tensor([0.229, 0.224, 0.225]).to(DEVICE) * 3).max(),
+        )
+
+        # Adversarial prediction
+        with torch.no_grad():
+            logit_final = self.model(tensor_perturbed)
+            adv_fake_prob = float(torch.sigmoid(logit_final).squeeze())
+            adv_label = "FAKE" if adv_fake_prob > 0.5 else "REAL"
+
+        # Decode perturbed tensor back to image for display
+        mean = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1).to(DEVICE)
+        std  = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1).to(DEVICE)
+        img_adv = (tensor_perturbed * std + mean).clamp(0, 1).squeeze(0)
+        img_adv_np = (img_adv.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+        img_adv_bgr = cv2.cvtColor(img_adv_np, cv2.COLOR_RGB2BGR)
+        _, buf = cv2.imencode(".png", img_adv_bgr)
+        adv_image_b64 = f"data:image/png;base64,{base64.b64encode(buf).decode()}"
+
+        return {
+            "original_label":      orig_label,
+            "original_fake_prob":  round(orig_fake_prob, 4),
+            "original_real_prob":  round(1.0 - orig_fake_prob, 4),
+            "adversarial_label":   adv_label,
+            "adversarial_fake_prob": round(adv_fake_prob, 4),
+            "adversarial_real_prob": round(1.0 - adv_fake_prob, 4),
+            "adversarial_image":   adv_image_b64,
+            "epsilon":             epsilon,
+            "fooled":              orig_label != adv_label,
+        }
+
 
 detector = DeepfakeDetector()

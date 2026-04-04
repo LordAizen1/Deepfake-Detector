@@ -19,6 +19,7 @@ type Status = "idle" | "loading" | "done" | "error";
 export default function Home() {
   const [preview, setPreview] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<"image" | "video" | null>(null);
+  const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState("");
@@ -26,6 +27,7 @@ export default function Home() {
   async function handleMediaSelected(file: File, previewUrl: string) {
     const isVideo = file.type.startsWith("video/");
     setPreview(previewUrl);
+    setOriginalFile(file);
     setMediaType(isVideo ? "video" : "image");
     setResult(null);
     setErrorMsg("");
@@ -61,6 +63,7 @@ export default function Home() {
   function reset() {
     setPreview(null);
     setMediaType(null);
+    setOriginalFile(null);
     setResult(null);
     setStatus("idle");
     setErrorMsg("");
@@ -154,7 +157,7 @@ export default function Home() {
 
         {/* Result */}
         {status === "done" && result && (
-          <ResultDisplay result={result} onReset={reset} />
+          <ResultDisplay result={result} originalFile={originalFile} onReset={reset} />
         )}
       </main>
 
