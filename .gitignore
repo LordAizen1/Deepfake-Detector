@@ -44,5 +44,10 @@ backend/wandb/
 .DS_Store
 Thumbs.db
 
+# Sample/demo media
+public/*.mp4
+public/*.mov
+public/*.webm
+
 # Misc
 .vercel
