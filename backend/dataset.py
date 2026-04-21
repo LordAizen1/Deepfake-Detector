@@ -25,13 +25,20 @@ def get_video_level_splits(face_dir: str, split: dict, seed: int = 42):
     random.seed(seed)
 
     all_videos = []   # list of (video_folder_path, label)
-    for label_name, label_idx in [("real", 0), ("fake", 1)]:
-        label_dir = Path(face_dir) / label_name
-        if not label_dir.exists():
-            continue
-        for video_dir in sorted(label_dir.iterdir()):
+
+    # Real faces
+    real_dir = Path(face_dir) / "real"
+    if real_dir.exists():
+        for video_dir in sorted(real_dir.iterdir()):
             if video_dir.is_dir():
-                all_videos.append((video_dir, label_idx))
+                all_videos.append((video_dir, 0))
+
+    # Fake faces — original Deepfakes + all additional manipulation types
+    for d in sorted(Path(face_dir).iterdir()):
+        if d.is_dir() and (d.name == "fake" or d.name.startswith("fake_")):
+            for video_dir in sorted(d.iterdir()):
+                if video_dir.is_dir():
+                    all_videos.append((video_dir, 1))
 
     random.shuffle(all_videos)
     n = len(all_videos)
