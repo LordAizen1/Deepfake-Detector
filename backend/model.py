@@ -10,6 +10,7 @@ import numpy as np
 from PIL import Image
 from torchvision import transforms
 import io
+from facenet_pytorch import MTCNN
 
 CHECKPOINT_PATH = os.path.join(os.path.dirname(__file__), "checkpoints", "best_model.pth")
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -45,8 +46,16 @@ class DeepfakeDetector:
                                  std=[0.229, 0.224, 0.225]),
         ])
 
-        self.face_cascade = cv2.CascadeClassifier(
-            cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+        # Replace Haar cascade with MTCNN
+        # keep_all=False → returns only the highest-confidence face,
+        # which is all we need for a simple "face present?" check.
+        # min_face_size=80 mirrors the minSize=(80,80) you had before.
+        self.mtcnn = MTCNN(
+            keep_all=False,
+            min_face_size=80,
+            thresholds=[0.6, 0.7, 0.7],  # P-Net, R-Net, O-Net confidence thresholds
+            device=DEVICE,
+            post_process=False,           # return raw pixel tensor, not normalised
         )
 
         print(f"Model loaded from {CHECKPOINT_PATH} (device: {DEVICE})")
@@ -58,11 +67,15 @@ class DeepfakeDetector:
         self._gradients = grad_output[0]
 
     def detect_face(self, image_bytes: bytes) -> bool:
+        """Return True if MTCNN finds at least one face in the image."""
         arr = np.frombuffer(image_bytes, dtype=np.uint8)
-        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        faces = self.face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=8, minSize=(80, 80))
-        return len(faces) > 0
+        img_bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        img_pil = Image.fromarray(img_rgb)
+
+        # detect() returns (boxes, probs); boxes is None when no face is found
+        boxes, probs = self.mtcnn.detect(img_pil)
+        return boxes is not None and len(boxes) > 0
 
     def _generate_gradcam(self, tensor: torch.Tensor, img_pil: Image.Image) -> str:
         """Generate Grad-CAM heatmap and return as base64 PNG."""
@@ -151,14 +164,15 @@ class DeepfakeDetector:
                     break
 
                 if frame_idx % sample_every == 0:
-                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    faces = self.face_cascade.detectMultiScale(
-                        gray, scaleFactor=1.1, minNeighbors=10, minSize=(80, 80)
-                    )
+                    img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
-                    if len(faces) > 0:
-                        img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                        tensor = self.transform(img).unsqueeze(0).to(DEVICE)
+                    # MTCNN face check — mirrors the keep_all=False setting so we
+                    # only need to know whether at least one face is present.
+                    boxes, probs = self.mtcnn.detect(img_pil)
+                    face_found = boxes is not None and len(boxes) > 0
+
+                    if face_found:
+                        tensor = self.transform(img_pil).unsqueeze(0).to(DEVICE)
 
                         with torch.no_grad():
                             logit = self.model(tensor)
@@ -167,7 +181,7 @@ class DeepfakeDetector:
                         decisiveness = abs(fake_prob - 0.5)
                         if decisiveness > best_decisiveness:
                             best_decisiveness = decisiveness
-                            best_frame_pil = img
+                            best_frame_pil = img_pil
                             best_frame_tensor = tensor.clone()
 
                         frame_results.append({
