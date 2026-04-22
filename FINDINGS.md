@@ -209,8 +209,8 @@ Applied during training only (not validation/test):
 
 The inference pipeline (`backend/model.py`) processes images as follows:
 
-1. **Face validation:** OpenCV Haar Cascade checks for human face presence (rejects non-face images such as cats, landscapes, etc.)
-2. **Preprocessing:** Resize to 224 × 224, normalize with ImageNet statistics
+1. **Face validation:** MTCNN (facenet-pytorch) checks for human face presence and returns bounding boxes (rejects non-face images such as cats, landscapes, etc.). Replaced original Haar Cascade — MTCNN is consistent with the preprocessing pipeline and handles pose/lighting variation better.
+2. **Face crop:** Bounding box from MTCNN is used to crop the face with 20% margin, matching the training preprocessing pipeline. The crop is resized to 224 × 224 and normalized with ImageNet statistics.
 3. **Grad-CAM:** Hooks on the last convolutional layer (`conv_head`) capture feature maps and gradients to generate a localization heatmap
 4. **Inference:** Forward pass through EfficientNet-B4, sigmoid on logit
 5. **Output:** Label (REAL/FAKE), confidence score, individual probabilities, and Grad-CAM heatmap overlay
@@ -238,7 +238,7 @@ Video analysis was added as an extension to support temporal deepfake detection.
 1. Write video bytes to a temporary file on disk
 2. Open with OpenCV `VideoCapture` and determine FPS
 3. Sample every 10th frame (adjustable), up to a maximum of 20 face-containing frames
-4. For each sampled frame, run Haar Cascade face detection with strict parameters (`minNeighbors=10`); skip frames with no face
+4. For each sampled frame, run MTCNN face detection; skip frames with no face. The MTCNN bounding box is used to crop the face (20% margin) before model input — matching the training pipeline.
 5. Run EfficientNet-B4 inference on each valid frame
 6. Track the *most decisive frame* — the one with fake probability furthest from 0.5 (highest confidence in either direction)
 7. Aggregate: average `fake_prob` across all face frames; classify as FAKE if average > 0.5
@@ -252,7 +252,7 @@ A minimum of 3 face-containing frames is required to produce a result; fewer tha
 | Frame sampling interval | Every 10th frame |
 | Max face frames analyzed | 20 |
 | Min face frames required | 3 |
-| Haar Cascade minNeighbors | 10 (stricter than image mode: 8) |
+| Face detector | MTCNN (facenet-pytorch) |
 | Video size limit | 200 MB |
 
 ---
@@ -318,5 +318,4 @@ where `y_target` is the opposite of the model's original prediction (maximising 
 1. **Fix class imbalance in multi-manipulation training** — set `pos_weight=0.2` in `BCEWithLogitsLoss` to compensate for the 5:1 fake:real ratio introduced when training on all FF++ manipulation types. This is the highest-priority fix for Iteration 2.
 2. **Cross-dataset training** — include Celeb-DF v2, DFDC, or ForgeryNet to close the generalization gap identified in Section 8.1.
 3. **Enhanced localization** — train a segmentation head for pixel-level manipulation masks instead of relying on Grad-CAM approximations.
-4. **Face cropping at inference** — use MTCNN to crop the face before running the classifier, matching the training pipeline more closely.
-5. **Model compression** — distillation or pruning for faster inference on edge devices.
+4. **Model compression** — distillation or pruning for faster inference on edge devices.
