@@ -27,8 +27,9 @@ CONFIG = {
     "face_dir"      : "faces",
     "save_dir"      : "checkpoints",
     "wandb_project" : "deepfake-detection",
-    "wandb_run"     : "efficientnet-b4-baseline",
+    "wandb_run"     : "efficientnet-b4-multi-adv",
     "device"        : "cuda" if torch.cuda.is_available() else "cpu",
+    "adv_epsilon"   : 0.02,     # FGSM perturbation strength (ε)
 }
 
 
@@ -81,25 +82,46 @@ def compute_metrics(all_labels, all_probs):
 
 
 # ─────────────────────────────────────────────
+# FGSM ADVERSARIAL PERTURBATION
+# ─────────────────────────────────────────────
+def fgsm_perturb(model, imgs, labels, criterion, epsilon):
+    """Return FGSM-perturbed batch. Grad computation is isolated."""
+    model.eval()
+    imgs_adv = imgs.clone().detach().requires_grad_(True)
+    logits = model(imgs_adv)
+    loss   = criterion(logits, labels)
+    loss.backward()
+    imgs_adv = (imgs_adv + epsilon * imgs_adv.grad.sign()).detach()
+    model.train()
+    return imgs_adv
+
+
+# ─────────────────────────────────────────────
 # TRAIN ONE EPOCH
 # ─────────────────────────────────────────────
 def train_epoch(model, loader, criterion, optimizer, device, epoch):
     model.train()
     running_loss = 0.0
     all_labels, all_probs = [], []
+    epsilon = CONFIG["adv_epsilon"]
 
     pbar = tqdm(loader, desc=f"  Train epoch {epoch}", leave=False)
     for imgs, labels in pbar:
         imgs   = imgs.to(device)
         labels = labels.to(device).unsqueeze(1)   # [B] → [B, 1]
 
+        # adversarial examples (separate forward/backward, no gradient leak)
+        imgs_adv = fgsm_perturb(model, imgs, labels, criterion, epsilon)
+
         optimizer.zero_grad()
-        logits = model(imgs)                       # [B, 1]
-        loss   = criterion(logits, labels)
+        logits_clean = model(imgs)
+        loss_clean   = criterion(logits_clean, labels)
+        loss_adv     = criterion(model(imgs_adv), labels)
+        loss = 0.5 * loss_clean + 0.5 * loss_adv
         loss.backward()
         optimizer.step()
 
-        probs = torch.sigmoid(logits).detach().cpu().squeeze().tolist()
+        probs = torch.sigmoid(logits_clean).detach().cpu().squeeze().tolist()
         if isinstance(probs, float):
             probs = [probs]
 

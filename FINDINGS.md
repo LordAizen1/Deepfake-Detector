@@ -39,20 +39,23 @@ Source: Kaggle (`xdxd003/ff-c23`), Format: MP4 videos, Size: ~17.9 GB
 | NeuralTextures | Neural rendering | 1,000 |
 | DeepFakeDetection | Face swap | 1,000 |
 
-*Only `Deepfakes/` and `original/` were used for training in the current iteration.*
+*Initial training used only `Deepfakes/` and `original/`. The second training iteration (Section 6.2) added all four additional manipulation types.*
 
 ---
 
 ## 3. Preprocessing Pipeline
 
-The preprocessing pipeline (`backend/preprocess.py`) extracts face crops from raw videos:
+The preprocessing pipeline extracts face crops from raw videos. Two scripts are used:
+- `backend/preprocess.py` — original script for `original/` (real) and `Deepfakes/` (fake)
+- `backend/preprocess_multi.py` — processes additional manipulation types, saving to `faces/fake_{type}/` to avoid filename conflicts (all FF++ manipulation types share identical video names e.g. `000_003.mp4`)
 
+Steps:
 1. Read MP4 videos using OpenCV
 2. Extract every 10th frame (`FRAME_INTERVAL = 10`)
 3. Run MTCNN face detection (PyTorch, GPU-accelerated) on each frame
 4. Crop detected face with 20% margin around bounding box
 5. Resize to 224 × 224 pixels
-6. Save as PNG to `faces/real/` or `faces/fake/` (organized by video name)
+6. Save as PNG organized by video name under `faces/real/`, `faces/fake/`, or `faces/fake_{type}/`
 
 | Parameter | Value |
 |---|---|
@@ -64,6 +67,8 @@ The preprocessing pipeline (`backend/preprocess.py`) extracts face crops from ra
 
 *Table: Preprocessing configuration.*
 
+**Iteration 1** (Deepfakes + original only):
+
 | Split | Frames |
 |---|---|
 | Train (70%) | 28,020 |
@@ -71,7 +76,16 @@ The preprocessing pipeline (`backend/preprocess.py`) extracts face crops from ra
 | Test (15%) | 6,025 |
 | **Total** | **40,062** |
 
-*Table: Dataset split sizes.*
+**Iteration 2** (all manipulation types):
+
+| Split | Frames |
+|---|---|
+| Train (70%) | 84,053 |
+| Val (15%) | 18,000 |
+| Test (15%) | 18,009 |
+| **Total** | **120,062** |
+
+*Table: Dataset split sizes per training iteration.*
 
 ### Key Design Decision: Video-Level Split
 
@@ -127,6 +141,8 @@ Applied during training only (not validation/test):
 
 ## 6. Training Results
 
+### 6.1 Iteration 1 — Baseline (Deepfakes only)
+
 **Trained on:** NVIDIA A100-SXM4-40GB (IIITD Precision Cluster, gpu04)
 **Training time:** ~1.5 hours (20 epochs)
 
@@ -155,6 +171,37 @@ Applied during training only (not validation/test):
 - **High AUC:** 99.5% AUC indicates excellent discriminative ability — the model ranks fake images higher than real ones almost perfectly.
 - **Convergence:** Loss stabilized around epoch 15, with diminishing returns in later epochs.
 - **Freeze→Unfreeze impact:** The sharp jump at epoch 3→4 validates the two-phase training strategy. Head-only training provides a warm start before full fine-tuning.
+
+---
+
+### 6.2 Iteration 2 — Multi-Manipulation + Adversarial Training
+
+**Trained on:** NVIDIA H100 (IIITD Precision Cluster, gpu02)
+**Training time:** ~3 hours (20 epochs)
+**Data:** All 5 FF++ fake types + original (120,062 total frames, 5:1 fake:real ratio)
+**Changes:** FGSM adversarial training (ε=0.02, 50% loss weight), all manipulation types included
+
+![Training Loss](public/train_loss_multi_adv.png)
+![Training Accuracy](public/train_accuracy_multi_adv.png)
+![Val Loss](public/val_loss_multi_adv.png)
+![Val Accuracy](public/val_accuracy_multi_adv.png)
+
+| Metric | Train | Validation | Test |
+|---|---|---|---|
+| Loss | 0.0155 | 0.4246 | 0.4223 |
+| Accuracy | 98.9% | 84.9% | **82.6%** |
+| F1-Score | 99.4% | 91.6% | **90.5%** |
+| AUC-ROC | 99.9% | 77.3% | **87.6%** |
+
+*Best checkpoint saved at epoch 5 (val AUC=0.893), used for test evaluation.*
+
+### Observations
+
+- **Class imbalance degraded performance:** With 5 fake types and 1 real, the dataset became 5:1 fake:real. `pos_weight=1.0` (unchanged from baseline) caused the model to learn a bias toward predicting fake — test accuracy of 82.6% closely matches the trivial majority-class baseline of 83.3% (5/6 of data is fake).
+- **AUC still meaningful:** Test AUC of 0.876 indicates the model has genuine discriminative ability despite the bias. With a calibrated threshold it would outperform the majority-class baseline.
+- **Backbone unfreeze still critical:** Val AUC jumped from ~0.5 to 0.79 at epoch 4 when the backbone unfroze, replicating the pattern from Iteration 1.
+- **Overfitting after epoch 5:** Train AUC continued to climb (→0.999) while val AUC peaked at epoch 5 (0.893) and declined, indicating memorization of training artifacts.
+- **Root cause identified:** `pos_weight` should be set to ~0.2 (= 1000 real / 5000 fake) to rebalance the BCE loss. This is a one-line fix for a future training run.
 
 ---
 
@@ -227,7 +274,7 @@ A minimum of 3 face-containing frames is required to produce a result; fewer tha
 
    The real-face accuracy (98.45%) staying high confirms the model learned genuine signal — it is not predicting REAL for everything. The failure is specific to artifact type: the model learned face-swap blending artifacts from `Deepfakes/` that are absent in expression-transfer (Face2Face), neural rendering (NeuralTextures), and other face-swap variants (FaceSwap, FaceShifter) which use different pipelines.
 
-2. **Only trained on Deepfakes manipulation type** — the model has only seen face-swap deepfakes from the `Deepfakes/` folder. It has not been trained on Face2Face, FaceSwap, FaceShifter, or NeuralTextures manipulations despite all being present in FF++.
+2. **Class imbalance in multi-manipulation training** — when training on all 5 FF++ fake types, the fake:real ratio becomes 5:1. Using `pos_weight=1.0` (unchanged from the balanced baseline) biases the model toward predicting fake. Fix: set `pos_weight=0.2` in `BCEWithLogitsLoss` to rebalance the gradient signal.
 
 3. **GAN and diffusion-generated faces not detected** — images from tools like StyleGAN (`thispersondoesnotexist.com`) or diffusion-based face generators operate differently from face-swap deepfakes and are not reliably detected.
 
@@ -255,6 +302,10 @@ The following improvements were made beyond the original proposal based on TA fe
 
 4. **Adversarial robustness testing** *(implemented)* — FGSM (Fast Gradient Sign Method) adversarial attacks are integrated directly into the web interface. After obtaining a prediction on an image, the user can apply a perturbation of adjustable strength (ε) and observe whether the model's prediction changes. The perturbed image is visually indistinguishable from the original but may cause the model to flip its verdict, demonstrating the model's vulnerability to adversarial inputs.
 
+5. **Multi-manipulation training** *(implemented)* — the model was retrained on all five FF++ manipulation types (Deepfakes, Face2Face, FaceSwap, FaceShifter, NeuralTextures) using a new SLURM array preprocessing pipeline (`preprocess_multi.py`, `preprocess_multi.sh`). Training data grew from 40,062 to 120,062 frames. Results and findings are reported in Section 6.2.
+
+6. **Adversarial training** *(implemented)* — FGSM adversarial examples (ε=0.02) are generated per batch during training and mixed 50/50 with clean examples in the loss computation. This is intended to improve robustness against adversarial perturbations at inference time. Implemented in `train.py` (`fgsm_perturb()` function, modified `train_epoch()`).
+
 ### FGSM Adversarial Attack Implementation
 
 Given an input image *x* with predicted label *y*, the FGSM perturbation is computed as:
@@ -264,9 +315,8 @@ where `y_target` is the opposite of the model's original prediction (maximising 
 
 ## 10. Future Improvements
 
-1. **Cross-dataset training** — include Celeb-DF v2, DFDC, or ForgeryNet to close the generalization gap identified in Section 8.1.
-2. **Train on all FF++ manipulation types** — include Face2Face, FaceSwap, FaceShifter, NeuralTextures alongside the currently used Deepfakes subset.
-3. **Adversarial training** — retrain with adversarially perturbed examples mixed into the training set to improve robustness against FGSM/PGD attacks.
-4. **Enhanced localization** — train a segmentation head for pixel-level manipulation masks instead of relying on Grad-CAM approximations.
-5. **Face cropping at inference** — use MTCNN to crop the face before running the classifier, matching the training pipeline more closely.
-6. **Model compression** — distillation or pruning for faster inference on edge devices.
+1. **Fix class imbalance in multi-manipulation training** — set `pos_weight=0.2` in `BCEWithLogitsLoss` to compensate for the 5:1 fake:real ratio introduced when training on all FF++ manipulation types. This is the highest-priority fix for Iteration 2.
+2. **Cross-dataset training** — include Celeb-DF v2, DFDC, or ForgeryNet to close the generalization gap identified in Section 8.1.
+3. **Enhanced localization** — train a segmentation head for pixel-level manipulation masks instead of relying on Grad-CAM approximations.
+4. **Face cropping at inference** — use MTCNN to crop the face before running the classifier, matching the training pipeline more closely.
+5. **Model compression** — distillation or pruning for faster inference on edge devices.

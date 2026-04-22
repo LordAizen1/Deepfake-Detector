@@ -2,7 +2,7 @@
 #SBATCH --job-name=deepfake-preprocess-multi
 #SBATCH --output=%A_%a_out.log
 #SBATCH --error=%A_%a_error.log
-#SBATCH --time=01:30:00
+#SBATCH --time=02:00:00
 #SBATCH --qos=medium
 #SBATCH --partition=medium
 #SBATCH --mem=32G
