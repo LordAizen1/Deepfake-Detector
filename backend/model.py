@@ -34,9 +34,9 @@ class DeepfakeDetector:
         self._features = None
         self._gradients = None
 
-        # Register hooks on the last conv layer (EfficientNet-B4: conv_head)
-        self.model.conv_head.register_forward_hook(self._save_features)
-        self.model.conv_head.register_full_backward_hook(self._save_gradients)
+        # Hook on last MBConv block (14×14 feature maps, better localization than conv_head's 7×7)
+        self.model.blocks[-1].register_forward_hook(self._save_features)
+        self.model.blocks[-1].register_full_backward_hook(self._save_gradients)
 
         self.transform = transforms.Compose([
             transforms.Resize((224, 224)),
@@ -78,8 +78,11 @@ class DeepfakeDetector:
         cam = F.relu(cam)
         cam = cam.squeeze().detach().cpu().numpy()
 
+        # Threshold: keep only top 15% of activations for tighter localization
+        threshold = np.percentile(cam, 85)
+        cam = np.where(cam >= threshold, cam - threshold, 0)
+
         # Normalize to 0-255
-        cam = cam - cam.min()
         if cam.max() > 0:
             cam = cam / cam.max()
         cam = (cam * 255).astype(np.uint8)
@@ -157,7 +160,14 @@ class DeepfakeDetector:
                     )
 
                     if len(faces) > 0:
-                        img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                        x, y, w, h = faces[0]
+                        margin = int(0.2 * max(w, h))
+                        x1 = max(0, x - margin)
+                        y1 = max(0, y - margin)
+                        x2 = min(frame.shape[1], x + w + margin)
+                        y2 = min(frame.shape[0], y + h + margin)
+                        face_crop = frame[y1:y2, x1:x2]
+                        img = Image.fromarray(cv2.cvtColor(face_crop, cv2.COLOR_BGR2RGB))
                         tensor = self.transform(img).unsqueeze(0).to(DEVICE)
 
                         with torch.no_grad():
